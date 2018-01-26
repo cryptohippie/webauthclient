@@ -16,7 +16,7 @@ var (
 type HTTPClientFactoryFunc func() *http.Client
 
 // getSourceAddr returns the first IPv4 address configured on netInterface.
-func getSourceAddr(netInterface string) (net.Addr, error) {
+func getSourceAddr(netInterface string) (*net.TCPAddr, error) {
 	intf, err := net.InterfaceByName(netInterface)
 	if err != nil {
 		return nil, err
@@ -40,28 +40,44 @@ func getSourceAddr(netInterface string) (net.Addr, error) {
 	return nil, ErrNoAddress
 }
 
+func newHTTPClient(addr *net.TCPAddr, timeoutFactor uint64) *http.Client {
+	tf := time.Duration(timeoutFactor)
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   tf * 10 * time.Second,
+				KeepAlive: tf * 10 * time.Second,
+				DualStack: false,
+				LocalAddr: addr,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       tf * 30 * time.Second,
+			TLSHandshakeTimeout:   tf * 10 * time.Second,
+			ExpectContinueTimeout: tf * time.Second,
+		},
+	}
+}
+
 // ClientFactoryForInterface returns a http.Client factory that connects
 // from the given interface.
-func ClientFactoryForInterface(netInterface string) (HTTPClientFactoryFunc, error) {
+func ClientFactoryForInterface(netInterface string, timeoutFactor uint64) (HTTPClientFactoryFunc, error) {
 	sourceAddr, err := getSourceAddr(netInterface)
 	if err != nil {
 		return nil, err
 	}
 	factory := func() *http.Client {
-		return &http.Client{
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-					DualStack: false,
-					LocalAddr: sourceAddr,
-				}).DialContext,
-				MaxIdleConns:          100,
-				IdleConnTimeout:       90 * time.Second,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-			},
-		}
+		return newHTTPClient(sourceAddr, timeoutFactor)
 	}
 	return factory, err
+}
+
+// ClientFactoryForAddress returns a http.Client factory that connects from a given address.
+func ClientFactoryForAddress(address net.IP, timeoutFactor uint64) HTTPClientFactoryFunc {
+	factory := func() *http.Client {
+		return newHTTPClient(&net.TCPAddr{
+			IP:   address,
+			Port: 0,
+		}, timeoutFactor)
+	}
+	return factory
 }
