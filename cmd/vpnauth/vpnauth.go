@@ -2,12 +2,13 @@ package main
 
 import (
 	"bufio"
-	"cryptohippie/webauthclient"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"strings"
+
+	"github.com/cryptohippie/webauthclient"
 )
 
 var (
